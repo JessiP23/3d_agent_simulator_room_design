@@ -1,21 +1,18 @@
-# pip install torch transformers diffusers accelerate datasets tqdm peft torchvision
-
 import os
-os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
-
-# !nvidia-smi
-
 import torch
-from diffusers import StableDiffusionPipeline, DDPMScheduler, UNet2DConditionModel, AutoencoderKL
-from transformers import CLIPTextModel, CLIPTokenizer
-from datasets import load_dataset
+import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
+from torchvision import transforms
 from accelerate import Accelerator
 from tqdm.auto import tqdm
-import torch.nn.functional as F
-from torchvision import transforms
+from datasets import load_dataset
+from transformers import CLIPTextModel, CLIPTokenizer
+from diffusers import AutoencoderKL, UNet2DConditionModel, PNDMScheduler, StableDiffusionPipeline
 from PIL import Image
 import gc
+
+os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:512'
 
 class MemoryEfficientInteriorTrainer:
     def __init__(self, model_id="runwayml/stable-diffusion-v1-5"):
@@ -24,7 +21,7 @@ class MemoryEfficientInteriorTrainer:
         self.tokenizer = CLIPTokenizer.from_pretrained(self.model_id, subfolder="tokenizer")
 
         self.transform = transforms.Compose([
-            transforms.Resize((512, 512)),
+            transforms.Resize((256, 256)),
             transforms.ToTensor(),
             transforms.Normalize([0.5], [0.5]),
         ])
@@ -42,12 +39,13 @@ class MemoryEfficientInteriorTrainer:
             images = []
             for img in examples['image']:
                 if isinstance(img, Image.Image):
-                    img_rgb = img.convert("RGB")
-                elif isinstance(img, (str, bytes)):
-                    img_rgb = Image.open(img).convert("RGB")
+                    img_tensor = self.transform(img)
+                    images.append(img_tensor)
                 else:
-                    raise ValueError(f"Unsupported image type: {type(img)}")
-                images.append(self.transform(img_rgb))
+                    print(f"Skipping unsupported image type: {type(img)}")
+            
+            if not images:
+                return {}
             
             images_tensor = torch.stack(images)
             
@@ -72,6 +70,11 @@ class MemoryEfficientInteriorTrainer:
             remove_columns=dataset['train'].column_names
         )
         
+        processed_dataset = processed_dataset.filter(lambda x: len(x) > 0 and 'pixel_values' in x and 'input_ids' in x and 'attention_mask' in x)
+        
+        if len(processed_dataset) == 0:
+            raise ValueError("No valid data in the dataset after preprocessing. Please check your dataset and preprocessing steps.")
+        
         processed_dataset.set_format(
             type='torch',
             columns=['pixel_values', 'input_ids', 'attention_mask']
@@ -84,62 +87,36 @@ class MemoryEfficientInteriorTrainer:
         
         dataset = self.load_hf_dataset(dataset_name)
         
-        # Configure accelerator without mixed precision
         accelerator = Accelerator(
             gradient_accumulation_steps=gradient_accumulation_steps,
-            mixed_precision=None,
+            mixed_precision="no",  # Change this to "no" to avoid FP16 issues
         )
         
-        # Load models in float32
-        text_encoder = CLIPTextModel.from_pretrained(
-            self.model_id, 
-            subfolder="text_encoder",
-        )
-        vae = AutoencoderKL.from_pretrained(
-            self.model_id, 
-            subfolder="vae",
-        )
-        unet = UNet2DConditionModel.from_pretrained(
-            self.model_id, 
-            subfolder="unet",
-        )
+        text_encoder = CLIPTextModel.from_pretrained(self.model_id, subfolder="text_encoder")
+        vae = AutoencoderKL.from_pretrained(self.model_id, subfolder="vae")
+        unet = UNet2DConditionModel.from_pretrained(self.model_id, subfolder="unet")
         
-        # Freeze models
         vae.requires_grad_(False)
         text_encoder.requires_grad_(False)
         
-        # Move to device and convert to half precision after freezing
-        vae = vae.to(self.device).half()
-        text_encoder = text_encoder.to(self.device).half()
-        unet = unet.to(self.device)  # Keep UNet in float32
-        
-        effective_batch_size = batch_size * gradient_accumulation_steps
-        lr_scaled = learning_rate * (effective_batch_size / 8)
         optimizer = torch.optim.AdamW(
             unet.parameters(), 
-            lr=lr_scaled,
+            lr=learning_rate,
             weight_decay=1e-2
         )
-        
-        noise_scheduler = DDPMScheduler.from_pretrained(
-            self.model_id, 
-            subfolder="scheduler"
-        )
+
+        noise_scheduler = PNDMScheduler.from_pretrained(self.model_id, subfolder="scheduler")
         
         train_dataloader = DataLoader(
             dataset["train"],
             batch_size=batch_size,
             shuffle=True,
-            drop_last=True,
             pin_memory=True
         )
         
         unet, optimizer, train_dataloader = accelerator.prepare(
             unet, optimizer, train_dataloader
         )
-        
-        # Create scaler with updated syntax
-        scaler = torch.amp.GradScaler('cuda')
         
         global_step = 0
         for epoch in range(num_epochs):
@@ -150,41 +127,28 @@ class MemoryEfficientInteriorTrainer:
                 with accelerator.accumulate(unet):
                     self.clear_memory()
                     
-                    pixel_values = batch["pixel_values"].to(self.device, dtype=torch.float16)
+                    pixel_values = batch["pixel_values"].to(self.device)
                     input_ids = batch["input_ids"].to(self.device)
                     
-                    # Use updated autocast syntax
-                    with torch.amp.autocast('cuda'):
-                        with torch.no_grad():
-                            latents = vae.encode(pixel_values).latent_dist.sample()
-                            latents = latents * vae.config.scaling_factor
+                    latents = vae.encode(pixel_values).latent_dist.sample()
+                    latents = latents * vae.config.scaling_factor
+                
+                    noise = torch.randn_like(latents)
+                    bsz = latents.shape[0]
+                    timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=latents.device)
+                    noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
                     
-                        noise = torch.randn_like(latents)
-                        bsz = latents.shape[0]
-                        timesteps = torch.randint(
-                            0, noise_scheduler.config.num_train_timesteps, 
-                            (bsz,), 
-                            device=latents.device
-                        )
-                        noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
-                        
-                        with torch.no_grad():
-                            encoder_hidden_states = text_encoder(input_ids)[0]
-                        
-                        noise_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
-                        loss = F.mse_loss(noise_pred.float(), noise.float())
+                    encoder_hidden_states = text_encoder(input_ids)[0]
                     
-                    # Scale loss before backward pass
-                    scaled_loss = scaler.scale(loss)
-                    scaled_loss.backward()
+                    noise_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
+                    loss = F.mse_loss(noise_pred, noise, reduction="mean")
                     
-                    if (step + 1) % gradient_accumulation_steps == 0:
-                        # Unscale gradients and step optimizer
-                        scaler.unscale_(optimizer)
-                        torch.nn.utils.clip_grad_norm_(unet.parameters(), max_norm=1.0)
-                        scaler.step(optimizer)
-                        scaler.update()
-                        optimizer.zero_grad(set_to_none=True)
+                    accelerator.backward(loss)
+                    
+                    if accelerator.sync_gradients:
+                        accelerator.clip_grad_norm_(unet.parameters(), max_norm=1.0)
+                    optimizer.step()
+                    optimizer.zero_grad()
                 
                 global_step += 1
                 logs = {"loss": loss.detach().item(), "step": global_step}
@@ -207,13 +171,17 @@ class MemoryEfficientInteriorTrainer:
         unwrapped_unet = accelerator.unwrap_model(unet)
         unwrapped_unet.save_pretrained("interior_final")
         
+        pipeline = StableDiffusionPipeline.from_pretrained(
+            self.model_id,
+            unet=unwrapped_unet,
+        )
+        pipeline.save_pretrained("interior_pipeline")
+        
         return unwrapped_unet
 
     def generate_image(self, prompt, num_images=1):
         pipeline = StableDiffusionPipeline.from_pretrained(
-            self.model_id,
-            unet=UNet2DConditionModel.from_pretrained("interior_final"),
-            torch_dtype=torch.float16
+            "interior_pipeline",
         ).to(self.device)
         
         images = pipeline(
@@ -224,23 +192,23 @@ class MemoryEfficientInteriorTrainer:
         ).images
         
         return images
-    
 
+if __name__ == "__main__":
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    gc.collect()
 
-# Clear CUDA memory
-import torch
-import gc
+    trainer = MemoryEfficientInteriorTrainer()
+    trained_unet = trainer.train(
+        dataset_name="razor7x/Interior_Design_Dataset",
+        batch_size=1,
+        num_epochs=10,
+        gradient_accumulation_steps=4,
+        learning_rate=1e-5
+    )
 
-if torch.cuda.is_available():
-    torch.cuda.empty_cache()
-gc.collect()
+    prompt = "A modern minimalist living room with large windows"
+    generated_images = trainer.generate_image(prompt)
+    generated_images[0].save("/kaggle/working/generated_interior.png")
+    print("Image generated and saved as 'generated_interior.png'")
 
-# Initialize and train
-trainer = MemoryEfficientInteriorTrainer()
-trained_unet = trainer.train(
-    dataset_name="razor7x/Interior_Design_Dataset",
-    batch_size=1,
-    num_epochs=10,
-    gradient_accumulation_steps=4,
-    learning_rate=1e-5
-)
