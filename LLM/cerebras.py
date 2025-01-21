@@ -1,115 +1,104 @@
+from diffusers import StableDiffusionPipeline, EulerDiscreteScheduler
 import torch
-from diffusers import DiffusionPipeline
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+from PIL import Image
+import cv2
+from transformers import pipeline
 
-# Load Stable Diffusion XL Base1.0
-pipe = DiffusionPipeline.from_pretrained(
-    "stabilityai/stable-diffusion-xl-base-1.0",
-    torch_dtype=torch.float16,
-    variant="fp16",
-    use_safetensors=True
-).to("cuda")
-
-# Optional CPU offloading to save some GPU Memory
-pipe.enable_model_cpu_offload()
-
-# Loading Trained LoRA Weights
-pipe.load_lora_weights("AdamLucek/sdxl-base-1.0-oldbookillustrations-lora")
-
-def generate_image(prompt, height, width, num_inference_steps, guidance_scale):
-    result = pipe(
-        prompt=prompt,
-        num_inference_steps=num_inference_steps,
-        height=height,
-        width=width,
-        guidance_scale=guidance_scale,
+def generate_room_image(prompt):
+    model_id = "stabilityai/stable-diffusion-2"
+    scheduler = EulerDiscreteScheduler.from_pretrained(model_id, subfolder="scheduler")
+    pipe = StableDiffusionPipeline.from_pretrained(
+        model_id, 
+        scheduler=scheduler, 
+        torch_dtype=torch.float16
     )
-    image = result.images[0]
-    return image
+    pipe = pipe.to("cuda")
+    return pipe(prompt).images[0]
 
-def convert_2d_to_3d(image):
-    # Convert 2D image to 3D model
-    # This is a simplified example and may require more complex logic
-    # to create a 3D model from a 2D image
+def estimate_depth(image):
+    # Use DPT for depth estimation
+    depth_estimator = pipeline("depth-estimation", model="Intel/dpt-large")
+    depth = depth_estimator(image)
+    return np.array(depth["depth"])
 
-    image_array = np.array(image)
-    height, width, channels = image_array.shape
-    vertices = np.zeros((height * width * 3, 3))
-    index = 0
+def create_3d_mesh(image, depth_map):
+    # Convert image to numpy array
+    img_array = np.array(image)
+    height, width = depth_map.shape
+    
+    # Create mesh grid
+    x, y = np.meshgrid(np.arange(width), np.arange(height))
+    
+    # Scale and normalize coordinates
+    x = (x - width/2) / width
+    y = (y - height/2) / height
+    z = depth_map / depth_map.max()  # Normalize depth values
+    
+    # Create vertices and faces
+    vertices = np.stack([x.flatten(), y.flatten(), z.flatten()], axis=1)
+    faces = []
+    for i in range(height-1):
+        for j in range(width-1):
+            v0 = i * width + j
+            v1 = v0 + 1
+            v2 = (i + 1) * width + j
+            v3 = v2 + 1
+            # Create two triangles for each quad
+            faces.append([v0, v1, v2])
+            faces.append([v1, v3, v2])
+    
+    faces = np.array(faces)
+    
+    # Add color information
+    colors = img_array.reshape(-1, 3) / 255.0
+    
+    return vertices, faces, colors
 
-    for i in range(height):
-        for j in range(width):
-            vertices[index, 0] = j / width
-            vertices[index, 1] = i / height
-            vertices[index, 2] = 0
-            index += 1
-            if j < width - 1:
-                vertices[index, 0] = (j + 1) / width
-                vertices[index, 1] = i / height
-                vertices[index, 2] = 0
-
-            if i < height - 1:
-                vertices[index, 0] = j / width
-                vertices[index, 1] = (i + 1) / height
-                vertices[index, 2] = 0
-                index += 1
-
-            if j < width - 1 and i < height - 1:
-                vertices[index, 0] = (j + 1) / width
-                vertices[index, 1] = (i + 1) / height
-                vertices[index, 2] = 0
-                index += 1
-
-    return vertices
-
-    '''
-    height, width, channels = image.shape
-    vertices = np.zeros((height * width * 3, 3))
-    for i in range(height):
-        for j in range(width):
-            vertices[i * width * 3 + j * 3] = j / width
-            vertices[i * width * 3 + j * 3 + 1] = i / height
-            vertices[i * width * 3 + j * 3 + 2] = 0
-    return vertices
-    '''
-
-def plot_3d_model(vertices):
-    fig = plt.figure()
+def visualize_3d_room(vertices, faces, colors):
+    fig = plt.figure(figsize=(10, 10))
     ax = fig.add_subplot(111, projection='3d')
-    ax.scatter(vertices[:, 0], vertices[:, 1], vertices[:, 2])
-    plt.show()
-
-    for i in range(vertices.shape[0]):
-        for j in range(i + 1, vertices.shape[0]):
-            if np.linalg.norm(vertices[i] - vertices[j]) < 0.1:
-                ax.plot([vertices[i, 0], vertices[j, 0]], [vertices[i, 1], vertices[j, 1]], [vertices[i, 2], vertices[j, 2]], '-b')
+    
+    # Plot the mesh with colors
+    mesh = ax.plot_trisurf(
+        vertices[:, 0],
+        vertices[:, 1],
+        vertices[:, 2],
+        triangles=faces,
+        shade=True
+    )
+    
+    # Set the color of each face based on the average color of its vertices
+    face_colors = np.mean(colors[faces], axis=1)
+    mesh.set_facecolors(face_colors)
+    
+    # Set equal aspect ratio
+    ax.set_box_aspect([1,1,1])
+    
+    # Set labels
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
+    ax.set_zlabel('Z')
     
     plt.show()
 
-def process_request(prompt, height, width, num_inference_steps, guidance_scale):
-    image = generate_image(prompt, height, width, num_inference_steps, guidance_scale)
-    vertices = convert_2d_to_3d(image)
-    return vertices
+def process_room_to_3d(prompt):
+    # Generate room image
+    image = generate_room_image(prompt)
+    
+    # Estimate depth
+    depth_map = estimate_depth(image)
+    
+    # Create 3D mesh
+    vertices, faces, colors = create_3d_mesh(image, depth_map)
+    
+    # Visualize result
+    visualize_3d_room(vertices, faces, colors)
+    
+    return vertices, faces, colors
 
-def generate_3d_model(prompt, height, width, num_inference_steps, guidance_scale):
-    vertices = process_request(prompt, height, width, num_inference_steps, guidance_scale)
-    return vertices
-
-def generate_2d_image(prompt, height, width, num_inference_steps, guidance_scale):
-    image = generate_image(prompt, height, width, num_inference_steps, guidance_scale)
-    return image
-
-if __name__ == "__main__":
-    prompt = "Room with 3 doors and 1 sofa"
-    height = 1024
-    width = 1024
-    num_inference_steps = 50
-    guidance_scale = 7.0
-
-    vertices = generate_3d_model(prompt, height, width, num_inference_steps, guidance_scale)
-    plot_3d_model(vertices)
-
-    image = generate_2d_image(prompt, height, width, num_inference_steps, guidance_scale)
-    print(image.shape)
+# Example usage
+prompt = "a modern living room with a large window, a comfortable sofa, and a coffee table"
+vertices, faces, colors = process_room_to_3d(prompt)
