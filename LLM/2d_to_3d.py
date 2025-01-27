@@ -51,7 +51,11 @@ class Interior2DTo3D:
             faces_per_pixel=1
         )
         
-        renderer = MeshRenderer(
+        # Create a renderer
+        renderer = MeshRenderer(\
+
+            # rasterizer = MeshRasterizer(
+            # Example of using a custom rasterizer
             rasterizer=MeshRasterizer(
                 cameras=cameras,
                 raster_settings=raster_settings
