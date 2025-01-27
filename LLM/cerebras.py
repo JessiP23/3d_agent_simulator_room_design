@@ -25,6 +25,8 @@ def generate_room_image(prompt):
     pipe = pipe.to("cuda")
     return pipe(prompt).images[0]
 
+
+# estimate depth for given image and convert in 3d
 def estimate_depth(image):
     # Use DPT for depth estimation
     depth_estimator = pipeline("depth-estimation", model="Intel/dpt-large")
