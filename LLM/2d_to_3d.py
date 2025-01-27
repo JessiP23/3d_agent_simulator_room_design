@@ -60,6 +60,8 @@ class Interior2DTo3D:
                 cameras=cameras,
                 raster_settings=raster_settings
             ),
+
+            # soft shader
             shader=SoftPhongShader(
                 device=self.device,
                 cameras=cameras
