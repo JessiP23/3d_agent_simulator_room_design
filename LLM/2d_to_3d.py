@@ -74,6 +74,9 @@ class Interior2DTo3D:
     def segment_image(self, image):
         # Prepare image for segmentation
         inputs = self.feature_extractor(images=image, return_tensors="pt")
+
+
+        # inputs for the new device in k,v inputs for the new device
         inputs = {k: v.to(self.device) for k, v in inputs.items()}
         
         # Get segmentation
