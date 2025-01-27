@@ -69,6 +69,8 @@ class Interior2DTo3D:
         )
         return renderer
     
+
+    # segment image function for rendering the new image
     def segment_image(self, image):
         # Prepare image for segmentation
         inputs = self.feature_extractor(images=image, return_tensors="pt")
