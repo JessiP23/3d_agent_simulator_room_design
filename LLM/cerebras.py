@@ -108,6 +108,6 @@ def process_room_to_3d(prompt):
     
     return vertices, faces, colors
 
-# Example usage
+# Define prompt for room generation
 prompt = "a modern living room with a large window, a comfortable sofa, and a coffee table"
 vertices, faces, colors = process_room_to_3d(prompt)
