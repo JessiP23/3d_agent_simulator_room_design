@@ -9,6 +9,7 @@ from transformers import pipeline
 
 # define generate room image by using stable diffusion pipeline
 def generate_room_image(prompt):
+    # utilizing stable diffusion pipeline to generate room image
     model_id = "stabilityai/stable-diffusion-2"
     scheduler = EulerDiscreteScheduler.from_pretrained(model_id, subfolder="scheduler")
     pipe = StableDiffusionPipeline.from_pretrained(
