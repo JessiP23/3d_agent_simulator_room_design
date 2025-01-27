@@ -2,6 +2,7 @@ import torch
 import numpy as np
 from transformers import SegformerForSemanticSegmentation, AutoFeatureExtractor
 import trimesh
+# pytorch for 3D rendering
 from pytorch3d.structures import Meshes
 from pytorch3d.renderer import (
     PerspectiveCameras,
