@@ -94,6 +94,8 @@ class Interior2DTo3D:
             if mask.sum() > 100:  # Size threshold
                 # Get bounding box
                 y_indices, x_indices = torch.where(mask)
+
+                # Calculate bounding box
                 bbox = {
                     'x1': x_indices.min().item(),
                     'y1': y_indices.min().item(),
