@@ -20,6 +20,8 @@ def generate_room_image(prompt):
         scheduler=scheduler, 
         torch_dtype=torch.float16
     )
+
+    # designed to use GPU 
     pipe = pipe.to("cuda")
     return pipe(prompt).images[0]
 
