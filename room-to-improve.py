@@ -1,5 +1,3 @@
-import pyvista as pv
-
 # num of users: 5000
 # num of songs: 10000
 # mp3 audio: 5MB
