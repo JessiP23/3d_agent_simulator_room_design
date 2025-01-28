@@ -20,4 +20,13 @@
 '''
 MiDaS or DPT-Hybrid: Models that are better for depth estimation and 3D reconstruction
 Apply smoothing or edge-araw filters to the depth map to reduce noise and improve the quality of the 3d mesh
+
+Mesh simplification: Reduce the number of vertices and faces in the mesh to improve performance and rendering speed. pymeshlab or trimesh can help
+
+Normal Estimation: Calculate the normals for each vertex in the mesh to improve lighting and shading effects
+
+Texture mapping: Map the image onto the 3d mesh for a more realistic visualization instead of using vertex colors
+
+
+
 '''
