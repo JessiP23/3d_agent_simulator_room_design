@@ -27,6 +27,8 @@ Normal Estimation: Calculate the normals for each vertex in the mesh to improve 
 
 Texture mapping: Map the image onto the 3d mesh for a more realistic visualization instead of using vertex colors
 
+Better lighning and shading: Use Phong shading or Physhically-based rendering (PBR) to improve the realism of the 3d scene
 
+Interactive Visualization: Use plotly or pyvista to allow users to rotate, zoom, and pan the 3D model.
 
 '''
