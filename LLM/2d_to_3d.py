@@ -39,7 +39,7 @@ def estimate_depth(image):
     # Apply smoothing to the depth map
     depth_map = gaussian_filter(depth_map, sigma=1.0)
 
-    return np.array(depth["depth"])
+    return depth_map
 
 def create_3d_mesh(image, depth_map):
     # Convert image to numpy array
@@ -134,6 +134,11 @@ def visualize_3d_room_interactive(vertices, faces, colors):
 def process_room_to_3d(prompt):
     # Generate room image
     image = generate_room_image(prompt)
+
+    plt.imshow(image)
+    plt.axis('off')
+    plt.title("Generated Room Image")
+    plt.show()
     
     # Estimate depth
     depth_map = estimate_depth(image)
