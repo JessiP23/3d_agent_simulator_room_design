@@ -36,4 +36,10 @@ Interactive visualization: Use plotly or pyvista to allow users to rotate, zoom,
 Camera Controls: Implement better camera controls to allow users to view the 3D model from different angles
 
 
+Modularize the code: Break down the code into smaller functions or classes to improve readability and maintainability
+
+Pipeline optimization: Optimize the pipeline for faster processing, such as using parallel processing or GPU acceleration, important if plan to deploy in production
+
+Error handling: Add error handling and logging to catch and report any issues that may arise during the 3D reconstruction process
+
 '''
