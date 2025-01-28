@@ -1,3 +1,5 @@
+import pyvista as pv
+
 # num of users: 5000
 # num of songs: 10000
 # mp3 audio: 5MB
@@ -29,6 +31,9 @@ Texture mapping: Map the image onto the 3d mesh for a more realistic visualizati
 
 Better lighning and shading: Use Phong shading or Physhically-based rendering (PBR) to improve the realism of the 3d scene
 
-Interactive Visualization: Use plotly or pyvista to allow users to rotate, zoom, and pan the 3D model.
+Interactive visualization: Use plotly or pyvista to allow users to rotate, zoom, and pan the 3d model
+
+Camera Controls: Implement better camera controls to allow users to view the 3D model from different angles
+
 
 '''
