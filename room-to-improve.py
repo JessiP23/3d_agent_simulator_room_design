@@ -42,4 +42,9 @@ Pipeline optimization: Optimize the pipeline for faster processing, such as usin
 
 Error handling: Add error handling and logging to catch and report any issues that may arise during the 3D reconstruction process
 
+
+Fine-Tune the diffusion model: Fine-tune the stable diffusion model on a custom dataset to improve the quality of the generated room images
+
+Use GANs for image generation: Explore using Generative Adversarial Networks (GANs) for room image generation to achieve more realistic results
+
 '''
