@@ -16,3 +16,8 @@
 
 
 
+
+'''
+MiDaS or DPT-Hybrid: Models that are better for depth estimation and 3D reconstruction
+Apply smoothing or edge-araw filters to the depth map to reduce noise and improve the quality of the 3d mesh
+'''
