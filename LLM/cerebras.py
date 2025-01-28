@@ -7,26 +7,17 @@ from PIL import Image
 import cv2
 from transformers import pipeline
 
-# define generate room image by using stable diffusion pipeline
 def generate_room_image(prompt):
-    # utilizing stable diffusion pipeline to generate room image
     model_id = "stabilityai/stable-diffusion-2"
-
-    
-    # euler discrete scheduler
     scheduler = EulerDiscreteScheduler.from_pretrained(model_id, subfolder="scheduler")
     pipe = StableDiffusionPipeline.from_pretrained(
         model_id, 
         scheduler=scheduler, 
         torch_dtype=torch.float16
     )
-
-    # designed to use GPU 
     pipe = pipe.to("cuda")
     return pipe(prompt).images[0]
 
-
-# estimate depth for given image and convert in 3d
 def estimate_depth(image):
     # Use DPT for depth estimation
     depth_estimator = pipeline("depth-estimation", model="Intel/dpt-large")
@@ -108,6 +99,5 @@ def process_room_to_3d(prompt):
     
     return vertices, faces, colors
 
-# Define prompt for room generation
 prompt = "a modern living room with a large window, a comfortable sofa, and a coffee table"
 vertices, faces, colors = process_room_to_3d(prompt)
